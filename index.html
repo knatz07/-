@@ -342,6 +342,13 @@
         }
     </style>
 </head>
+    <script src="script.js"></script>
+    <script type="module">
+        import { enableMobileDrag } from './mobile-drag.js';
+
+        // เรียกทุกครั้งหลังสร้าง .draggable และ .drop-zone
+        document.addEventListener('DOMContentLoaded', enableMobileDrag);
+    </script>
 <body>
     <!-- Decorative elements -->
     <div class="cloud cloud-1">
