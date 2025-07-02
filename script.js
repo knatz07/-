@@ -512,10 +512,22 @@ function loadQuestion() {
 // --- ฟังก์ชัน Drag & Drop ---
 let draggedItem = null;
 
+// เพิ่มฟังก์ชันสำหรับจัดการ Touch Events ใน setupDragAndDrop()
+
 function setupDragAndDrop() {
     const draggables = document.querySelectorAll('.draggable');
     const dropZones = document.querySelectorAll('.drop-zone');
+    const stepsContainer = document.getElementById('steps-container'); // เพิ่มตัวแปรนี้เข้ามาใน scope
 
+    let draggedItem = null;
+    let initialX;
+    let initialY;
+    let currentX;
+    let currentY;
+    let xOffset = 0;
+    let yOffset = 0;
+
+    // --- Drag & Drop (สำหรับ Mouse) ---
     draggables.forEach(draggable => {
         draggable.addEventListener('dragstart', (e) => {
             draggedItem = draggable;
@@ -525,8 +537,10 @@ function setupDragAndDrop() {
         });
 
         draggable.addEventListener('dragend', () => {
-            draggedItem.classList.remove('dragging');
-            draggedItem = null;
+            if (draggedItem) {
+                draggedItem.classList.remove('dragging');
+                draggedItem = null;
+            }
         });
     });
 
@@ -546,50 +560,14 @@ function setupDragAndDrop() {
 
             if (!draggedItem) return;
 
-            // ถ้า dropZone ว่างเปล่า หรือมี textNode '1', '2', '3', '4' อยู่
-            if (dropZone.children.length === 1 && dropZone.children[0].tagName === 'SPAN') {
-                dropZone.innerHTML = ''; // เคลียร์เลขลำดับ
-                dropZone.appendChild(draggedItem);
-                dropZone.classList.add('filled');
-
-                // ลบจากตำแหน่งเดิมถ้ามาจาก dropZone อื่น
-                const previousDropZone = document.querySelector('.drop-zone.filled .draggable')?.closest('.drop-zone');
-                if (previousDropZone && previousDropZone !== dropZone) {
-                    // หา dropZone เดิมที่มี draggedItem และเคลียร์
-                    document.querySelectorAll('.drop-zone').forEach(zone => {
-                        if (zone !== dropZone && zone.contains(draggedItem)) {
-                            zone.innerHTML = `<span class="text-gray-400 text-lg">${parseInt(zone.dataset.position) + 1}</span>`;
-                            zone.classList.remove('filled');
-                        }
-                    });
-                }
-            } else if (dropZone.children.length > 0 && dropZone.children[0].classList.contains('draggable')) {
-                // ถ้า dropZone มี item อยู่แล้ว ให้สลับตำแหน่งกัน
-                const existingItem = dropZone.children[0];
-                const draggedItemParent = draggedItem.closest('.drop-zone') || stepsContainer;
-                
-                // สลับตำแหน่ง
-                if (draggedItemParent.classList.contains('drop-zone')) {
-                    // ถ้า draggedItem มาจาก dropZone อื่น ให้สลับกัน
-                    draggedItemParent.innerHTML = '';
-                    draggedItemParent.appendChild(existingItem);
-                    draggedItemParent.classList.add('filled');
-                } else {
-                    // ถ้า draggedItem มาจาก stepsContainer ให้ส่ง existingItem กลับไป
-                    stepsContainer.appendChild(existingItem);
-                }
-                
-                dropZone.innerHTML = '';
-                dropZone.appendChild(draggedItem);
-                dropZone.classList.add('filled');
-            }
+            handleDropLogic(dropZone, draggedItem, stepsContainer);
         });
     });
 
-    // Make sure items can be dragged back to the original steps container
+    // Make sure items can be dragged back to the original steps container (Mouse)
     stepsContainer.addEventListener('dragover', (e) => {
         e.preventDefault();
-        stepsContainer.classList.add('highlight'); // Optional: add visual cue
+        stepsContainer.classList.add('highlight');
     });
 
     stepsContainer.addEventListener('dragleave', () => {
@@ -600,16 +578,150 @@ function setupDragAndDrop() {
         e.preventDefault();
         stepsContainer.classList.remove('highlight');
         if (draggedItem) {
-            // หา dropZone เดิมที่มี draggedItem และเคลียร์
-            document.querySelectorAll('.drop-zone').forEach(zone => {
-                if (zone.contains(draggedItem)) {
-                    zone.innerHTML = `<span class="text-gray-400 text-lg">${parseInt(zone.dataset.position) + 1}</span>`;
-                    zone.classList.remove('filled');
-                }
-            });
-            stepsContainer.appendChild(draggedItem);
+            returnToStepsContainer(draggedItem);
         }
     });
+
+    // --- Touch Events (สำหรับ iPad/Mobile) ---
+    draggables.forEach(draggable => {
+        draggable.addEventListener('touchstart', (e) => {
+            draggedItem = draggable;
+            // ให้ตำแหน่งของ draggable เป็น absolute เพื่อให้เคลื่อนที่ได้อิสระ
+            draggedItem.style.position = 'absolute';
+            draggedItem.style.zIndex = '1000'; // ให้มันอยู่บนสุด
+
+            // เก็บตำแหน่งเริ่มต้นและ offset
+            const rect = draggedItem.getBoundingClientRect();
+            initialX = e.touches[0].clientX;
+            initialY = e.touches[0].clientY;
+            xOffset = initialX - rect.left;
+            yOffset = initialY - rect.top;
+
+            // ตั้งค่า initial position for dragging
+            setTranslate(e.touches[0].clientX - xOffset, e.touches[0].clientY - yOffset, draggedItem);
+
+            setTimeout(() => {
+                draggable.classList.add('dragging');
+            }, 0);
+        }, { passive: false }); // { passive: false } สำคัญมากสำหรับ preventDefault
+
+        draggable.addEventListener('touchmove', (e) => {
+            if (!draggedItem) return;
+
+            e.preventDefault(); // ป้องกันการ scroll ของหน้าจอ
+
+            currentX = e.touches[0].clientX - initialX;
+            currentY = e.touches[0].clientY - initialY;
+
+            setTranslate(e.touches[0].clientX - xOffset, e.touches[0].clientY - yOffset, draggedItem);
+
+            // เพิ่ม highlight ให้ drop zone ที่กำลังอยู่เหนือ (เหมือน dragover)
+            const touchedElement = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+            dropZones.forEach(zone => {
+                if (zone.contains(touchedElement) && zone !== draggedItem.parentNode) {
+                    zone.classList.add('highlight');
+                } else {
+                    zone.classList.remove('highlight');
+                }
+            });
+            if (stepsContainer.contains(touchedElement) && stepsContainer !== draggedItem.parentNode) {
+                 stepsContainer.classList.add('highlight');
+            } else {
+                 stepsContainer.classList.remove('highlight');
+            }
+
+        }, { passive: false });
+
+        draggable.addEventListener('touchend', (e) => {
+            if (!draggedItem) return;
+
+            draggedItem.classList.remove('dragging');
+            draggedItem.style.position = ''; // ลบ style ที่เพิ่มไป
+            draggedItem.style.zIndex = '';
+            draggedItem.style.transform = ''; // ลบ transform ออก
+
+            const touch = e.changedTouches[0];
+            const dropTarget = document.elementFromPoint(touch.clientX, touch.clientY);
+
+            let droppedSuccessfully = false;
+
+            // ตรวจสอบว่าปล่อยลงบน dropZone หรือไม่
+            dropZones.forEach(dropZone => {
+                dropZone.classList.remove('highlight'); // ลบ highlight ออก
+                if (dropZone.contains(dropTarget)) {
+                    handleDropLogic(dropZone, draggedItem, stepsContainer);
+                    droppedSuccessfully = true;
+                }
+            });
+
+            // ตรวจสอบว่าปล่อยกลับไปที่ stepsContainer หรือไม่
+            stepsContainer.classList.remove('highlight');
+            if (stepsContainer.contains(dropTarget) && !droppedSuccessfully) {
+                 returnToStepsContainer(draggedItem);
+                 droppedSuccessfully = true;
+            }
+
+            // ถ้าไม่ได้ drop ลงบน drop zone หรือ steps container
+            if (!droppedSuccessfully) {
+                // หากไม่ได้วางใน drop zone หรือ steps container ที่ถูกต้อง
+                // สามารถเลือกให้กลับไปที่ steps container หรืออยู่ที่เดิม (ซึ่งอาจจะทับซ้อนกับที่อื่น)
+                // ในตัวอย่างนี้จะให้มันกลับไปที่ stepsContainer เสมอหากไม่ได้ drop ถูกที่
+                returnToStepsContainer(draggedItem);
+            }
+            draggedItem = null;
+        });
+    });
+
+    function setTranslate(xPos, yPos, el) {
+        el.style.transform = "translate3d(" + xPos + "px, " + yPos + "px, 0)";
+    }
+
+    // ฟังก์ชันช่วยจัดการ Drop Logic (ใช้ได้ทั้ง mouse และ touch)
+    function handleDropLogic(dropZone, itemToDrop, originalContainer) {
+        // หา dropZone เดิมที่มี itemToDrop (ถ้ามาจาก dropZone อื่น)
+        const previousParentZone = itemToDrop.closest('.drop-zone');
+
+        // ถ้า dropZone ว่างเปล่า หรือมีแค่เลขลำดับ
+        if (dropZone.children.length === 1 && dropZone.children[0].tagName === 'SPAN') {
+            dropZone.innerHTML = ''; // เคลียร์เลขลำดับ
+            dropZone.appendChild(itemToDrop);
+            dropZone.classList.add('filled');
+
+            // ลบจากตำแหน่งเดิมถ้ามาจาก dropZone อื่น
+            if (previousParentZone && previousParentZone !== dropZone) {
+                previousParentZone.innerHTML = `<span class="text-gray-400 text-lg">${parseInt(previousParentZone.dataset.position) + 1}</span>`;
+                previousParentZone.classList.remove('filled');
+            }
+        } else if (dropZone.children.length > 0 && dropZone.children[0].classList.contains('draggable')) {
+            // ถ้า dropZone มี item อยู่แล้ว ให้สลับตำแหน่งกัน
+            const existingItem = dropZone.children[0];
+
+            if (previousParentZone && previousParentZone.classList.contains('drop-zone')) {
+                // ถ้า itemToDrop มาจาก dropZone อื่น ให้ existingItem ไปแทนที่ตำแหน่งนั้น
+                previousParentZone.innerHTML = '';
+                previousParentZone.appendChild(existingItem);
+                previousParentZone.classList.add('filled');
+            } else {
+                // ถ้า itemToDrop มาจาก stepsContainer ให้ existingItem กลับไปที่ stepsContainer
+                originalContainer.appendChild(existingItem);
+            }
+
+            dropZone.innerHTML = '';
+            dropZone.appendChild(itemToDrop);
+            dropZone.classList.add('filled');
+        }
+    }
+
+    // ฟังก์ชันช่วยนำ item กลับไปที่ stepsContainer
+    function returnToStepsContainer(item) {
+        document.querySelectorAll('.drop-zone').forEach(zone => {
+            if (zone.contains(item)) {
+                zone.innerHTML = `<span class="text-gray-400 text-lg">${parseInt(zone.dataset.position) + 1}</span>`;
+                zone.classList.remove('filled');
+            }
+        });
+        stepsContainer.appendChild(item);
+    }
 }
 
 // --- ฟังก์ชัน Timer ---
