@@ -1,4 +1,3 @@
-
 // ข้อมูลเกม
 const gameData = {
     food: [
